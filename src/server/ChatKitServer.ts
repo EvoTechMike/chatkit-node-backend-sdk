@@ -18,10 +18,9 @@ import type {
   NonStreamingReq,
   ThreadsCreateReq,
   ThreadsAddUserMessageReq,
-  // Unused in Phase 2, will be used in Phase 4:
-  // ThreadsAddClientToolOutputReq,
-  // ThreadsRetryAfterItemReq,
-  // ThreadsCustomActionReq,
+  ThreadsAddClientToolOutputReq,
+  ThreadsRetryAfterItemReq,
+  ThreadsCustomActionReq,
   ThreadsGetByIdReq,
   ThreadsListReq,
   ThreadsUpdateReq,
@@ -343,10 +342,109 @@ export abstract class ChatKitServer<TContext = unknown> {
         break;
       }
 
-      case 'threads.add_client_tool_output':
-      case 'threads.retry_after_item':
+      case 'threads.add_client_tool_output': {
+        const req = request as ThreadsAddClientToolOutputReq;
+        const thread = await this.store.loadThread(req.params.thread_id, context);
+
+        // Find the most recent pending client_tool_call item
+        const items = await this.store.loadThreadItems(
+          req.params.thread_id,
+          null,
+          1000, // Load enough items to find the pending tool call
+          'desc', // Most recent first
+          context
+        );
+
+        const pendingToolCall = items.data.find(
+          (item) => item.type === 'client_tool_call' && item.status === 'pending'
+        );
+
+        if (!pendingToolCall) {
+          throw new Error('No pending client tool call found');
+        }
+
+        // Update the tool call with the result
+        const updatedToolCall = {
+          ...pendingToolCall,
+          status: 'completed' as const,
+          output: req.params.result,
+        };
+
+        await this.store.saveItem(thread.id, updatedToolCall, context);
+
+        // Emit thread.item.replaced event
+        yield {
+          type: 'thread.item.replaced',
+          item: updatedToolCall,
+        } as ThreadItemReplacedEvent;
+
+        // Call respond() with null message to continue processing
+        yield* this.processEvents(thread, context, () => this.respond(thread, null, context));
+        break;
+      }
+
+      case 'threads.retry_after_item': {
+        const req = request as ThreadsRetryAfterItemReq;
+        const thread = await this.store.loadThread(req.params.thread_id, context);
+
+        // Load all items up to find the context
+        const items = await this.store.loadThreadItems(
+          req.params.thread_id,
+          null,
+          1000, // Load enough items
+          'asc', // Chronological order
+          context
+        );
+
+        // Find the index of the specified item
+        const itemIndex = items.data.findIndex((item) => item.id === req.params.item_id);
+        if (itemIndex === -1) {
+          throw new Error(`Item ${req.params.item_id} not found in thread`);
+        }
+
+        // Find the last user message before or at this item
+        let lastUserMessage: UserMessageItem | null = null;
+        for (let i = itemIndex; i >= 0; i--) {
+          const item = items.data[i];
+          if (item && item.type === 'user_message') {
+            lastUserMessage = item as UserMessageItem;
+            break;
+          }
+        }
+
+        if (!lastUserMessage) {
+          throw new Error('No user message found before the specified item');
+        }
+
+        // Call respond() to retry from this user message
+        yield* this.processEvents(thread, context, () =>
+          this.respond(thread, lastUserMessage, context)
+        );
+        break;
+      }
+
       case 'threads.custom_action': {
-        throw new Error(`Handler for ${request.type} not yet implemented (Phase 4)`);
+        const req = request as ThreadsCustomActionReq;
+        const thread = await this.store.loadThread(req.params.thread_id, context);
+
+        // Load the sender widget if item_id is provided
+        let senderWidget: WidgetItem | null = null;
+        if (req.params.item_id) {
+          const item = await this.store.loadItem(
+            thread.id,
+            req.params.item_id,
+            context
+          );
+          if (item.type === 'widget') {
+            senderWidget = item as WidgetItem;
+          }
+        }
+
+        // Call user's action() method and process events
+        yield* this.processEvents(thread, context, () =>
+          this.action(thread, req.params.action, senderWidget, context)
+        );
+        break;
       }
 
       default: {
