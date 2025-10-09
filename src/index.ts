@@ -231,3 +231,28 @@ export type {
 export {
   defaultLogger,
 } from './utils/logger.js';
+
+// ========== AGENTS SDK INTEGRATION ==========
+/**
+ * Agents SDK integration helpers for using @openai/agents with ChatKit.
+ *
+ * @example
+ * ```typescript
+ * import { Agent, Runner } from '@openai/agents';
+ * import { agents } from 'chatkit-node';
+ *
+ * const agentContext: agents.AgentContext<MyContext> = {
+ *   thread: currentThread,
+ *   store: myStore,
+ *   requestContext: { userId: 'user123' }
+ * };
+ *
+ * const input = await agents.simpleToAgentInput(userMessage);
+ * const runnerStream = Runner.runStreamed(myAgent, input);
+ *
+ * for await (const event of agents.streamAgentResponse(agentContext, runnerStream)) {
+ *   yield event;
+ * }
+ * ```
+ */
+export * as agents from './agents/index.js';

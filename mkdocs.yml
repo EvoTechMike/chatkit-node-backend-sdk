@@ -1,0 +1,64 @@
+site_name: ChatKit Node.js SDK
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.code.select
+    - navigation.sections
+    - navigation.path
+    - navigation.expand
+    - content.code.annotate
+  palette:
+    primary: black
+  logo: docs/assets/logo.svg
+  favicon: docs/images/favicon-platform.svg
+
+repo_name: chatkit-node
+repo_url: https://github.com/openai/chatkit-node
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Server Integration: server.md
+      - Actions: actions.md
+      - Widgets: widgets.md
+  - API Reference:
+      - Overview: api/README.md
+      - Classes:
+          - ChatKitServer: api/classes/ChatKitServer.md
+          - Store: api/classes/Store.md
+          - AttachmentStore: api/classes/AttachmentStore.md
+          - StreamingResult: api/classes/StreamingResult.md
+          - NonStreamingResult: api/classes/NonStreamingResult.md
+      - Errors:
+          - StreamError: api/classes/StreamError.md
+          - CustomStreamError: api/classes/CustomStreamError.md
+          - NotFoundError: api/classes/NotFoundError.md
+          - StoreNotFoundError: api/classes/StoreNotFoundError.md
+  - ChatKit JS Docs: https://openai.github.io/chatkit-js/
+
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+extra_css:
+  - stylesheets/extra.css
+
+docs_dir: docs
