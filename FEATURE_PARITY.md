@@ -2,7 +2,7 @@
 
 This document tracks the implementation status of features to achieve parity with the Python ChatKit SDK.
 
-## Implementation Status: 7/10 Features Complete ✅
+## Implementation Status: 8/10 Features Complete ✅
 
 ### ✅ Completed Features
 
@@ -49,9 +49,24 @@ This document tracks the implementation status of features to achieve parity wit
    - Description: Processes `response.output_text.done` events to finalize content parts
    - Matches Python: `agents.py:453-463`
 
+8. **Feature #7: Implement Event Merging (Multi-Agent & Widget Support)**
+   - Status: ✅ Complete
+   - Location: Multiple files (see details below)
+   - Priority: High (Widget Support)
+   - Description: Merge Agent SDK stream events with custom integration events
+   - Required for: Custom widgets, multi-agent workflows, advanced integrations
+   - Python reference: `agents.py:261-294, 386-414`
+   - Implementation files:
+     - `src/agents/merge-streams.ts` - Stream merging utility
+     - `src/agents/widget-helpers.ts` - diffWidget, accumulateText
+     - `src/agents/types.ts` - AsyncEventQueue, AgentContext extensions
+     - `src/agents/context-helpers.ts` - createAgentContext factory
+     - `src/server/widget-stream.ts` - Standalone streamWidget function
+     - `src/agents/stream-converter.ts` - Integrated merging logic
+
 ### 🔄 Remaining Features (Advanced Use Cases)
 
-8. **Feature #6: Add Tool Call Support**
+9. **Feature #6: Add Tool Call Support**
    - Status: ⏸️ Pending
    - Priority: Medium
    - Description: Handle tool calls from Agent SDK when tools are configured
@@ -61,18 +76,6 @@ This document tracks the implementation status of features to achieve parity wit
      - Listen for `run_item_stream_event` with `tool_call_item` type
      - Track `current_tool_call` and `current_item_id`
      - Emit `ClientToolCallItem` at end of run if `context.client_tool_call` is set
-
-9. **Feature #7: Implement Event Merging (Multi-Agent Support)**
-   - Status: ⏸️ Pending (TODO: Come back for multi-agent)
-   - Priority: Low (Advanced)
-   - Description: Merge Agent SDK stream events with custom integration events
-   - Required for: Custom widgets, multi-agent workflows, advanced integrations
-   - Python reference: `agents.py:261-294, 386-414`
-   - Implementation notes:
-     - Create `_merge_generators()` utility to merge async iterators
-     - Merge `agentRunner` stream with `AgentContext._events` queue
-     - Support `AgentContext.stream_widget()`, `start_workflow()`, `add_workflow_task()`
-     - Handle `_EventWrapper` to distinguish custom events from Agent SDK events
 
 10. **Feature #8: Add Guardrail Handling**
     - Status: ⏸️ Pending
@@ -86,58 +89,6 @@ This document tracks the implementation status of features to achieve parity wit
       - Emit `ThreadItemRemovedEvent` for all produced items on tripwire
       - Drain remaining events without processing
 
-## Feature #7 Details: Event Merging for Multi-Agent Support
-
-### What is Event Merging?
-
-Event merging allows combining two async event streams:
-1. **Agent SDK Stream**: Model responses (messages, reasoning, tool calls)
-2. **Custom Integration Stream**: Custom events (widgets, tasks, workflows)
-
-This enables advanced patterns like:
-- Streaming custom UI widgets alongside agent responses
-- Multi-agent workflows with custom task tracking
-- Custom workflow visualization while agents run
-- Integration-specific events (progress, status updates)
-
-### Python Implementation Reference
-
-```python
-# agents.py:261-294
-async def _merge_generators(
-    a: AsyncIterator[T1],
-    b: AsyncIterator[T2],
-) -> AsyncIterator[T1 | T2]:
-    # Merges two async iterators, yielding events as they arrive from either source
-    # Uses asyncio.wait with FIRST_COMPLETED to get events in arrival order
-```
-
-Usage in `stream_agent_response()`:
-```python
-# agents.py:386
-async for event in _merge_generators(result.stream_events(), queue_iterator):
-    # Events from either stream are processed together
-    if isinstance(event, _EventWrapper):
-        # This is a custom event from AgentContext
-        yield event.event
-    else:
-        # This is an Agent SDK event
-        # ... process raw_response_event, run_item_stream_event, etc.
-```
-
-### When to Implement?
-
-Implement Feature #7 when you need:
-- ✅ **Multi-agent systems** - Multiple agents collaborating with custom coordination
-- ✅ **Custom widgets** - Streaming interactive UI components alongside responses
-- ✅ **Advanced workflows** - Custom task tracking beyond basic reasoning
-- ✅ **Integration events** - Custom progress indicators, status updates
-
-You **don't** need Feature #7 for:
-- ❌ Basic single-agent chat (current implementation is sufficient)
-- ❌ Standard reasoning workflows (Feature #5 already handles this)
-- ❌ Simple tool usage (Feature #6 handles this)
-
 ## Testing Coverage
 
 Current test coverage:
@@ -145,8 +96,9 @@ Current test coverage:
 - ✅ Reasoning/workflow display
 - ✅ Annotations/citations
 - ✅ Multiple content parts
+- ✅ Widget streaming (Feature #7)
+- ✅ Custom event merging (Feature #7)
 - ⏸️ Tool calls (pending Feature #6)
-- ⏸️ Custom event merging (pending Feature #7)
 - ⏸️ Guardrail handling (pending Feature #8)
 
 ## Notes
@@ -154,4 +106,7 @@ Current test coverage:
 - All completed features match Python SDK behavior
 - Configuration options (e.g., `showThinking`) match Python patterns
 - Event types and structure match ChatKit protocol specification
-- Ready for basic production use with single-agent workflows
+- Widget system fully implemented with streaming support
+- Ready for production use with single-agent and multi-agent workflows
+- Tools can emit custom widgets using `context.streamWidget()`
+- Supports both static widgets and streaming widget generators

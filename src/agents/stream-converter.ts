@@ -3,6 +3,7 @@ import type { ThreadStreamEvent } from '../types/events.js';
 import type { AssistantMessageItem, Annotation, WorkflowItem } from '../types/items.js';
 import type { AgentContext } from './types.js';
 import { defaultGenerateItemId } from '../utils/id.js';
+import { mergeAsyncGenerators, EventWrapper } from './merge-streams.js';
 
 /**
  * Convert Agent SDK annotations to ChatKit annotation format.
@@ -96,10 +97,64 @@ export async function* streamAgentResponse<TContext = unknown>(
   let streamingThoughtIndex: number | null = null;
 
   try {
-    for await (const event of agentRunner) {
+    // Merge Agent SDK stream with custom event queue
+    // Convert AsyncIterables to AsyncIterators
+    const agentIterator = agentRunner[Symbol.asyncIterator]();
+    const eventsIterator = context._events[Symbol.asyncIterator]();
+    const mergedStream = mergeAsyncGenerators(agentIterator, eventsIterator);
+
+    for await (const event of mergedStream) {
+      // Handle custom events from AgentContext (widgets, workflows, etc.)
+      if (event instanceof EventWrapper) {
+        const customEvent = event.event as ThreadStreamEvent;
+
+        // Close workflow if a visible item is added after it
+        if (
+          customEvent.type === 'thread.item.added' ||
+          customEvent.type === 'thread.item.done'
+        ) {
+          const item = customEvent.item;
+          if (
+            currentWorkflowId &&
+            item.type !== 'client_tool_call' &&
+            item.type !== 'hidden_context_item' &&
+            showThinking
+          ) {
+            // End workflow before emitting custom item
+            const workflowItem: WorkflowItem = {
+              type: 'workflow',
+              id: currentWorkflowId,
+              thread_id: context.thread.id,
+              created_at: new Date().toISOString(),
+              workflow: {
+                type: 'reasoning',
+                tasks: currentWorkflowTasks,
+                expanded: false,
+                summary: null,
+              },
+            };
+
+            yield {
+              type: 'thread.item.done',
+              item: workflowItem,
+            };
+
+            currentWorkflowId = null;
+            currentWorkflowTasks = [];
+            streamingThoughtIndex = null;
+          }
+        }
+
+        // Emit the custom event
+        yield customEvent;
+        continue;
+      }
+
       // Handle Agent SDK raw model stream events
-      if (event.type === 'raw_model_stream_event') {
-        const { data } = event;
+      // Type guard: if not EventWrapper, it must be RunStreamEvent
+      const agentEvent = event as RunStreamEvent;
+      if (agentEvent.type === 'raw_model_stream_event') {
+        const { data } = agentEvent;
 
         // Handle item creation (response.output_item.added)
         if (data.type === 'model' && data.event?.type === 'response.output_item.added') {
@@ -430,6 +485,9 @@ export async function* streamAgentResponse<TContext = unknown>(
       }
     }
   } catch (error) {
+    // Complete the queue to stop waiting for events
+    context._events.complete();
+
     // Emit error event
     yield {
       type: 'error',
@@ -440,5 +498,8 @@ export async function* streamAgentResponse<TContext = unknown>(
           : 'An error occurred while processing agent response',
       allow_retry: true,
     };
+  } finally {
+    // Always complete the queue when done
+    context._events.complete();
   }
 }
