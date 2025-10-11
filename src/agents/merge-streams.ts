@@ -46,7 +46,8 @@ export class EventWrapper<T> {
  */
 export async function* mergeAsyncGenerators<T1, T2>(
   a: AsyncIterator<T1>,
-  b: AsyncIterator<T2>
+  b: AsyncIterator<T2>,
+  onFirstComplete?: () => void
 ): AsyncGenerator<T1 | EventWrapper<T2>> {
   // Track which iterators are still active
   const iterators = new Map<string, AsyncIterator<T1 | T2>>();
@@ -82,6 +83,11 @@ export async function* mergeAsyncGenerators<T1, T2>(
     if (result.done) {
       // This iterator is exhausted
       iterators.delete(key);
+
+      // If the first iterator (agent stream) completes, call the callback
+      if (key === 'a' && onFirstComplete) {
+        onFirstComplete();
+      }
 
       // If both are done, we're finished
       if (iterators.size === 0) {

@@ -4,6 +4,17 @@ import type { ThreadStreamEvent } from '../types/events.js';
 import type { WidgetRoot } from '../widgets/index.js';
 
 /**
+ * Client tool call configuration.
+ * Set this on AgentContext to trigger a client-side tool execution.
+ */
+export interface ClientToolCall {
+  /** Name of the client-side tool to call */
+  name: string;
+  /** Arguments to pass to the client tool */
+  arguments: Record<string, any>;
+}
+
+/**
  * Async queue for managing custom events in AgentContext.
  * Implements AsyncIterable so it can be consumed as an async generator.
  */
@@ -122,6 +133,21 @@ export interface AgentContext<TContext = unknown> {
    * @internal
    */
   _events: AsyncEventQueue<ThreadStreamEvent>;
+
+  /**
+   * Client tool call to be executed on the client-side.
+   * When set by a tool, this will be emitted as a ClientToolCallItem at the end of the stream.
+   *
+   * @example
+   * ```typescript
+   * // In a tool's execute function:
+   * context.clientToolCall = {
+   *   name: 'add_to_todo_list',
+   *   arguments: { task: 'Buy groceries' }
+   * };
+   * ```
+   */
+  clientToolCall?: ClientToolCall;
 
   /**
    * Emit a custom ThreadStreamEvent.

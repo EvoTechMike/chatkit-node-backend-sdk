@@ -2,7 +2,7 @@
 
 This document tracks the implementation status of features to achieve parity with the Python ChatKit SDK.
 
-## Implementation Status: 8/10 Features Complete ✅
+## Implementation Status: 9/10 Features Complete ✅
 
 ### ✅ Completed Features
 
@@ -64,18 +64,19 @@ This document tracks the implementation status of features to achieve parity wit
      - `src/server/widget-stream.ts` - Standalone streamWidget function
      - `src/agents/stream-converter.ts` - Integrated merging logic
 
-### 🔄 Remaining Features (Advanced Use Cases)
-
 9. **Feature #6: Add Tool Call Support**
-   - Status: ⏸️ Pending
-   - Priority: Medium
-   - Description: Handle tool calls from Agent SDK when tools are configured
-   - Required for: Agent tool usage (function calls, code interpreter, file search)
-   - Python reference: `agents.py:416-426, 592-608`
-   - Implementation notes:
-     - Listen for `run_item_stream_event` with `tool_call_item` type
-     - Track `current_tool_call` and `current_item_id`
-     - Emit `ClientToolCallItem` at end of run if `context.client_tool_call` is set
+   - Status: ✅ Complete
+   - Location: `src/agents/stream-converter.ts:99-174, 523-554`
+   - Description: Handle client-side tool calls from Agent SDK tools
+   - Matches Python: `agents.py:416-426, 177-193, 81-88`
+   - Implementation:
+     - Added `ClientToolCall` interface to `src/agents/types.ts:10-15`
+     - Added `clientToolCall` property to `AgentContext` interface (`src/agents/types.ts:150`)
+     - Track tool calls via `run_item_stream_event` in stream-converter
+     - Emit `ClientToolCallItem` at end of stream if `context.clientToolCall` is set
+   - Test tool: `advanced-chatkit-server.js:229-251` (`add_to_todo_list`)
+
+### 🔄 Remaining Features (Advanced Use Cases)
 
 10. **Feature #8: Add Guardrail Handling**
     - Status: ⏸️ Pending
@@ -98,7 +99,7 @@ Current test coverage:
 - ✅ Multiple content parts
 - ✅ Widget streaming (Feature #7)
 - ✅ Custom event merging (Feature #7)
-- ⏸️ Tool calls (pending Feature #6)
+- ✅ Client tool calls (Feature #6)
 - ⏸️ Guardrail handling (pending Feature #8)
 
 ## Notes
@@ -107,6 +108,8 @@ Current test coverage:
 - Configuration options (e.g., `showThinking`) match Python patterns
 - Event types and structure match ChatKit protocol specification
 - Widget system fully implemented with streaming support
+- Client tool call support fully implemented
 - Ready for production use with single-agent and multi-agent workflows
 - Tools can emit custom widgets using `context.streamWidget()`
+- Tools can trigger client-side actions using `context.clientToolCall`
 - Supports both static widgets and streaming widget generators

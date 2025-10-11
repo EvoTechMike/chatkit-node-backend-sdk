@@ -1,6 +1,6 @@
 import type { RunStreamEvent } from '@openai/agents';
 import type { ThreadStreamEvent } from '../types/events.js';
-import type { AssistantMessageItem, Annotation, WorkflowItem } from '../types/items.js';
+import type { AssistantMessageItem, Annotation, WorkflowItem, ClientToolCallItem } from '../types/items.js';
 import type { AgentContext } from './types.js';
 import { defaultGenerateItemId } from '../utils/id.js';
 import { mergeAsyncGenerators, EventWrapper } from './merge-streams.js';
@@ -96,12 +96,25 @@ export async function* streamAgentResponse<TContext = unknown>(
   let currentWorkflowTasks: Array<{ type: 'thought'; content: string; title?: string | null }> = [];
   let streamingThoughtIndex: number | null = null;
 
+  // Tool call tracking for client-side tool execution
+  let currentToolCall: string | null = null;
+  let currentToolCallItemId: string | null = null;
+
   try {
     // Merge Agent SDK stream with custom event queue
     // Convert AsyncIterables to AsyncIterators
     const agentIterator = agentRunner[Symbol.asyncIterator]();
     const eventsIterator = context._events[Symbol.asyncIterator]();
-    const mergedStream = mergeAsyncGenerators(agentIterator, eventsIterator);
+
+    // Complete the events queue when the agent stream finishes
+    const mergedStream = mergeAsyncGenerators(
+      agentIterator,
+      eventsIterator,
+      () => {
+        console.log('[StreamConverter] 🎯 Agent stream completed, closing event queue...');
+        context._events.complete();
+      }
+    );
 
     for await (const event of mergedStream) {
       // Handle custom events from AgentContext (widgets, workflows, etc.)
@@ -150,9 +163,27 @@ export async function* streamAgentResponse<TContext = unknown>(
         continue;
       }
 
-      // Handle Agent SDK raw model stream events
+      // Handle Agent SDK events
       // Type guard: if not EventWrapper, it must be RunStreamEvent
       const agentEvent = event as RunStreamEvent;
+
+      // Handle tool call events for client-side tool execution
+      if (agentEvent.type === 'run_item_stream_event') {
+        const item = agentEvent.item;
+
+        // Check if this is a tool call item with a function call
+        if (
+          item &&
+          item.type === 'tool_call_item' &&
+          (item as any).raw_item?.type === 'function_call'
+        ) {
+          const rawItem = (item as any).raw_item;
+          currentToolCall = rawItem.call_id || null;
+          currentToolCallItemId = rawItem.id || null;
+        }
+      }
+
+      // Handle Agent SDK raw model stream events
       if (agentEvent.type === 'raw_model_stream_event') {
         const { data } = agentEvent;
 
@@ -498,8 +529,51 @@ export async function* streamAgentResponse<TContext = unknown>(
           : 'An error occurred while processing agent response',
       allow_retry: true,
     };
-  } finally {
-    // Always complete the queue when done
-    context._events.complete();
+
+    // Re-throw to exit
+    return;
   }
+
+  // NOTE: No need to call complete() here - it's called by mergeAsyncGenerators callback
+  // when the agent stream finishes, which ensures the events queue drains before the loop exits
+
+  // Emit client tool call if one was set by a tool
+  // This must happen AFTER the try block completes and AFTER completing the queue
+  if (context.clientToolCall) {
+    console.log('[StreamConverter] 🔔 Client tool call detected! Emitting event...');
+    const itemId = currentToolCallItemId || context.store.generateItemId(
+      'tool_call',
+      context.thread,
+      context.requestContext
+    );
+
+    const callId = currentToolCall || context.store.generateItemId(
+      'tool_call',
+      context.thread,
+      context.requestContext
+    );
+
+    const clientToolCallItem: ClientToolCallItem = {
+      type: 'client_tool_call',
+      id: itemId,
+      thread_id: context.thread.id,
+      created_at: new Date().toISOString(),
+      status: 'pending',
+      call_id: callId,
+      name: context.clientToolCall.name,
+      arguments: context.clientToolCall.arguments,
+    };
+
+    console.log('[StreamConverter] 📤 Emitting client_tool_call:', JSON.stringify(clientToolCallItem, null, 2));
+
+    // Emit the client tool call item
+    yield {
+      type: 'thread.item.done',
+      item: clientToolCallItem,
+    };
+
+    console.log('[StreamConverter] ✅ Client tool call event emitted successfully');
+  }
+
+  console.log('[StreamConverter] 🏁 Stream complete - generator ending');
 }
