@@ -27,6 +27,7 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
+    "prepublishOnly": "npm run build && npm run type-check",
     "docs:api": "typedoc",
     "docs:serve": "npm run docs:api && mkdocs serve --dev-addr 0.0.0.0:8001",
     "docs:build": "npm run docs:api && mkdocs build"
