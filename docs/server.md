@@ -10,6 +10,15 @@ Install the `chatkit-node` package with the following command:
 npm install chatkit-node
 ```
 
+## Quick Start Checklist
+
+Before you begin:
+
+1. ✅ **Model**: Examples use `gpt-5` (OpenAI's latest reasoning model). Use `gpt-4o` or other models as needed.
+2. ✅ **AgentContext**: Always use `agents.createAgentContext()` - don't create context objects manually. The helper sets up internal event queues required for widget streaming.
+3. ✅ **Store**: You must implement the `Store` interface yourself. No concrete implementation is provided.
+4. ✅ **Agents SDK**: Install `@openai/agents` separately: `npm install @openai/agents`
+
 ## Defining a server class
 
 The `ChatKitServer` base class is the main building block of the ChatKit server implementation.
@@ -24,16 +33,16 @@ Example server implementation that calls the Agent SDK runner and streams the re
 
 ```typescript
 import { ChatKitServer, Store, ThreadMetadata, UserMessageItem, ThreadStreamEvent } from 'chatkit-node';
-import { Agent, Runner } from '@openai/agents-sdk';
-import { AgentContext, streamAgentResponse, simpleToAgentInput } from 'chatkit-node/agents';
+import { Agent, run } from '@openai/agents';
+import { agents } from 'chatkit-node';
 
 class MyChatKitServer<TContext> extends ChatKitServer<TContext> {
   constructor(dataStore: Store<TContext>, attachmentStore?: AttachmentStore<TContext>) {
     super(dataStore, attachmentStore);
   }
 
-  assistantAgent = new Agent<AgentContext>({
-    model: 'gpt-4.1',
+  assistantAgent = new Agent({
+    model: 'gpt-5',
     name: 'Assistant',
     instructions: 'You are a helpful assistant'
   });
@@ -43,19 +52,21 @@ class MyChatKitServer<TContext> extends ChatKitServer<TContext> {
     input: UserMessageItem | null,
     context: TContext
   ): AsyncGenerator<ThreadStreamEvent> {
-    const agentContext: AgentContext = {
+    // ✅ IMPORTANT: Use createAgentContext() helper
+    // This sets up the internal event queue needed for widget streaming
+    const agentContext = agents.createAgentContext(
       thread,
-      store: this.store,
-      requestContext: context,
-    };
-
-    const result = Runner.runStreamed(
-      this.assistantAgent,
-      input ? await simpleToAgentInput(input) : [],
-      { context: agentContext }
+      this.store,
+      context
     );
 
-    for await (const event of streamAgentResponse(agentContext, result)) {
+    const result = await run(
+      this.assistantAgent,
+      input ? await agents.simpleToAgentInput(input) : [],
+      { stream: true, context: agentContext }
+    );
+
+    for await (const event of agents.streamAgentResponse(agentContext, result)) {
       yield event;
     }
   }
@@ -75,12 +86,12 @@ Example using ChatKit with Express:
 ```typescript
 import express from 'express';
 import { MyChatKitServer } from './MyChatKitServer';
-import { PostgresStore } from './PostgresStore';
-import { BlobStorageStore } from './BlobStorageStore';
+import { MyStore } from './MyStore'; // Your Store implementation
+import { MyAttachmentStore } from './MyAttachmentStore'; // Your AttachmentStore implementation (optional)
 
 const app = express();
-const dataStore = new PostgresStore();
-const attachmentStore = new BlobStorageStore(dataStore);
+const dataStore = new MyStore();
+const attachmentStore = new MyAttachmentStore(); // Optional - only needed for file uploads
 const server = new MyChatKitServer(dataStore, attachmentStore);
 
 app.post('/chatkit', async (req, res) => {
@@ -104,9 +115,11 @@ app.post('/chatkit', async (req, res) => {
 
 ## Data store
 
-ChatKit needs to store information about threads, messages, and attachments. The examples above use a provided development-only data store implementation using SQLite (`SQLiteStore`).
+ChatKit needs to store information about threads, messages, and attachments. **You are responsible for implementing the `Store` abstract class** - no concrete implementation is provided with the SDK.
 
-You are responsible for implementing the `Store` class using the data store of your choice. When implementing the store, you must allow for the Thread/Attachment/ThreadItem type shapes changing between library versions. The recommended approach for relational databases is to serialize models into JSON-typed columns instead of separating model fields across multiple columns.
+For development/testing, you can use an in-memory store (see `tests/helpers/MockStore.ts` for a reference implementation).
+
+For production, you must implement the `Store` interface using your database of choice (PostgreSQL, MySQL, MongoDB, etc.). When implementing the store, you must allow for the Thread/Attachment/ThreadItem type shapes changing between library versions. The recommended approach for relational databases is to **serialize models into JSON-typed columns** instead of separating model fields across multiple columns.
 
 ```typescript
 import { ThreadMetadata, ThreadItem, Attachment, Page } from 'chatkit-node';
@@ -281,10 +294,10 @@ To trigger a client-side tool from Agents SDK, set `ctx.context.clientToolCall` 
 **Note:** Client tools are client-side callbacks invoked by the agent during server-side inference. If you're interested in client-side callbacks triggered by a user interacting with a widget, refer to [client actions](actions.md/#client).
 
 ```typescript
-import { functionTool } from '@openai/agents-sdk';
-import { AgentContext } from 'chatkit-node/agents';
+import { tool } from '@openai/agents';
+import type { agents } from 'chatkit-node';
 
-const addToTodoList = functionTool({
+const addToTodoList = tool({
   name: 'add_to_todo_list',
   description: 'Add an item to the user\'s todo list.',
   parameters: {
@@ -294,20 +307,20 @@ const addToTodoList = functionTool({
     },
     required: ['item']
   },
-  async execute(ctx: RunContextWrapper<AgentContext>, { item }: { item: string }) {
-    ctx.context.clientToolCall = {
+  async execute({ item }: { item: string }, { context }: { context: agents.AgentContext }) {
+    context.clientToolCall = {
       name: 'add_to_todo_list',
       arguments: { item },
     };
   }
 });
 
-const assistantAgent = new Agent<AgentContext>({
-  model: 'gpt-4.1',
+const assistantAgent = new Agent({
+  model: 'gpt-5',
   name: 'Assistant',
   instructions: 'You are a helpful assistant',
   tools: [addToTodoList],
-  toolUseBehavior: stopAtTools({ stopAtToolNames: [addToTodoList.name] }),
+  // Note: Configure toolUseBehavior to stop at client tools
 });
 ```
 
@@ -328,19 +341,20 @@ async *respond(
   input: UserMessageItem | null,
   context: TContext
 ): AsyncGenerator<ThreadStreamEvent> {
-  const agentContext: AgentContext = {
+  // ✅ Use createAgentContext() to properly set up the event queue
+  const agentContext = agents.createAgentContext(
     thread,
-    store: this.store,
-    requestContext: context,
-  };
-
-  const result = Runner.runStreamed(
-    this.assistantAgent,
-    input ? await simpleToAgentInput(input) : [],
-    { context: agentContext }
+    this.store,
+    context
   );
 
-  for await (const event of streamAgentResponse(agentContext, result)) {
+  const result = await run(
+    this.assistantAgent,
+    input ? await agents.simpleToAgentInput(input) : [],
+    { stream: true, context: agentContext }
+  );
+
+  for await (const event of agents.streamAgentResponse(agentContext, result)) {
     yield event;
   }
 }
@@ -423,21 +437,31 @@ Widgets are rich UI components that can be displayed in chat. You can return a w
 Example of a widget returned directly from the `respond` method:
 
 ```typescript
-import { streamWidget, Text } from 'chatkit-node/widgets';
+import { streamWidget } from 'chatkit-node/server';
 
 async *respond(
   thread: ThreadMetadata,
   input: UserMessageItem | null,
   context: TContext
 ): AsyncGenerator<ThreadStreamEvent> {
-  const widget = new Text({
-    id: 'description',
-    value: 'Text widget',
-  });
+  // Approach 1: Plain object (flexible, JSON-first)
+  const widget = {
+    type: 'Card',
+    children: [
+      { type: 'Text', id: 'description', value: 'Text widget' }
+    ]
+  };
+
+  // Approach 2: Class instances (type-safe, if you prefer)
+  // import { Text, Card } from 'chatkit-node/widgets';
+  // const widget = new Card({
+  //   children: [new Text({ id: 'description', value: 'Text widget' })]
+  // });
 
   for await (const event of streamWidget(
     thread,
     widget,
+    null, // copyText
     (itemType) => this.store.generateItemId(itemType, thread, context)
   )) {
     yield event;
@@ -448,21 +472,23 @@ async *respond(
 Example of a widget returned from a tool call:
 
 ```typescript
-import { functionTool } from '@openai/agents-sdk';
-import { AgentContext } from 'chatkit-node/agents';
-import { Text } from 'chatkit-node/widgets';
+import { tool } from '@openai/agents';
+import type { agents } from 'chatkit-node';
 
-const sampleWidget = functionTool({
+const sampleWidget = tool({
   name: 'sample_widget',
   description: 'Display a sample widget to the user.',
   parameters: { type: 'object', properties: {} },
-  async execute(ctx: RunContextWrapper<AgentContext>) {
-    const widget = new Text({
-      id: 'description',
-      value: 'Text widget',
-    });
+  async execute(_params: {}, { context }: { context: agents.AgentContext }) {
+    // Plain object approach (matches your implementation)
+    const widget = {
+      type: 'Card',
+      children: [
+        { type: 'Text', id: 'description', value: 'Text widget' }
+      ]
+    };
 
-    await ctx.context.streamWidget(widget);
+    await context.streamWidget(widget);
   }
 });
 ```
@@ -472,34 +498,37 @@ The examples above return a fully completed static widget. You can also stream a
 **Note:** Currently, only `<Text>` and `<Markdown>` components marked with an `id` have their text updates streamed.
 
 ```typescript
-const sampleWidget = functionTool({
+const sampleWidget = tool({
   name: 'sample_widget',
   description: 'Display a sample widget to the user.',
   parameters: { type: 'object', properties: {} },
-  async execute(ctx: RunContextWrapper<AgentContext>) {
-    const descriptionText = Runner.runStreamed(
+  async execute(_params: {}, { context }: { context: agents.AgentContext }) {
+    const descriptionText = await run(
       emailGenerator,
-      'ChatKit is the best thing ever'
+      'ChatKit is the best thing ever',
+      { stream: true }
     );
 
     async function* widgetGenerator() {
-      const textWidgetUpdates = accumulateText(
-        descriptionText.streamEvents(),
-        new Text({
+      const textWidgetUpdates = agents.accumulateText(
+        descriptionText,
+        {
+          type: 'Text',
           id: 'description',
           value: '',
           streaming: true
-        })
+        }
       );
 
       for await (const textWidget of textWidgetUpdates) {
-        yield new Card({
+        yield {
+          type: 'Card',
           children: [textWidget]
-        });
+        };
       }
     }
 
-    await ctx.context.streamWidget(widgetGenerator());
+    await context.streamWidget(widgetGenerator());
   }
 });
 ```
@@ -552,8 +581,8 @@ ChatKit does not automatically title threads, but you can easily implement your 
 First, decide when to trigger the thread title update. A simple approach might be to set the thread title the first time a user sends a message.
 
 ```typescript
-import { simpleToAgentInput } from 'chatkit-node/agents';
-import { ThreadMetadata, UserMessageItem } from 'chatkit-node';
+import { agents, run } from 'chatkit-node';
+import type { ThreadMetadata, UserMessageItem } from 'chatkit-node';
 
 async function maybeUpdateThreadTitle(
   thread: ThreadMetadata,
@@ -562,9 +591,9 @@ async function maybeUpdateThreadTitle(
   if (thread.title !== null && thread.title !== undefined) {
     return;
   }
-  const agentInput = await simpleToAgentInput(inputItem);
-  const run = await Runner.run(titleAgent, { input: agentInput });
-  thread.title = run.finalOutput;
+  const agentInput = await agents.simpleToAgentInput(inputItem);
+  const result = await run(titleAgent, agentInput);
+  thread.title = result.finalOutput;
 }
 
 async *respond(
@@ -587,16 +616,16 @@ async *respond(
 If your server-side tool takes a while to run, you can use the progress update event to display the progress to the user.
 
 ```typescript
-import { functionTool } from '@openai/agents-sdk';
-import { AgentContext } from 'chatkit-node/agents';
-import { ProgressUpdateEvent } from 'chatkit-node';
+import { tool } from '@openai/agents';
+import type { agents } from 'chatkit-node';
+import type { ProgressUpdateEvent } from 'chatkit-node';
 
-const longRunningTool = functionTool({
+const longRunningTool = tool({
   name: 'long_running_tool',
   description: 'A tool that takes a while to run',
   parameters: { type: 'object', properties: {} },
-  async execute(ctx: RunContextWrapper<AgentContext>): Promise<string> {
-    await ctx.context.stream({
+  async execute(_params: {}, { context }: { context: agents.AgentContext }): Promise<string> {
+    await context.stream({
       type: 'progress_update',
       text: 'Loading a user profile...'
     } as ProgressUpdateEvent);

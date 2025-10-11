@@ -22,6 +22,6 @@ Defined in: src/types/events.ts:123
 
 ### widget
 
-> **widget**: [`WidgetComponent`](../type-aliases/WidgetComponent.md)
+> **widget**: [`WidgetRoot`](../type-aliases/WidgetRoot.md)
 
 Defined in: src/types/events.ts:124

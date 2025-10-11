@@ -62,7 +62,7 @@ Defined in: src/types/items.ts:107
 
 ### widget
 
-> **widget**: [`WidgetComponent`](../type-aliases/WidgetComponent.md)
+> **widget**: [`WidgetRoot`](../type-aliases/WidgetRoot.md)
 
 Defined in: src/types/items.ts:108
 

@@ -6,9 +6,10 @@
 
 # Type Alias: WidgetRoot
 
-> **WidgetRoot** = [`WidgetComponent`](WidgetComponent.md)
+> **WidgetRoot** = `Card` \| `ListView`
 
-Defined in: src/types/widgets.ts:29
+Defined in: src/widgets/index.ts:144
 
-Root widget types that can be top-level items.
-Will be fully defined in Phase 5.
+Union of valid root-level widget containers.
+
+These widgets can be used as the top-level widget in a WidgetItem.

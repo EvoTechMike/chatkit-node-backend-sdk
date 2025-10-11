@@ -4,6 +4,10 @@
 
 # @chatkit/node
 
+## Namespaces
+
+- [agents](@chatkit/namespaces/agents/README.md)
+
 ## Enumerations
 
 - [ErrorCode](enumerations/ErrorCode.md)
@@ -121,11 +125,11 @@
 - [Source](type-aliases/Source.md)
 - [StoreItemType](type-aliases/StoreItemType.md)
 - [ThreadStatus](type-aliases/ThreadStatus.md)
-- [WidgetComponent](type-aliases/WidgetComponent.md)
-- [WidgetRoot](type-aliases/WidgetRoot.md)
-- [WidgetIcon](type-aliases/WidgetIcon.md)
 - [Task](type-aliases/Task.md)
 - [WorkflowSummary](type-aliases/WorkflowSummary.md)
+- [WidgetIcon](type-aliases/WidgetIcon.md)
+- [WidgetComponent](type-aliases/WidgetComponent.md)
+- [WidgetRoot](type-aliases/WidgetRoot.md)
 
 ## Variables
 

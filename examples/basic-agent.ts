@@ -167,12 +167,13 @@ Keep your responses concise but informative. Be engaging and helpful!`,
     console.log(`[${context.userId}] Processing user message in thread ${thread.id}`);
 
     try {
-      // Create AgentContext for the Agent SDK
-      const agentContext: agents.AgentContext<{ userId: string }> = {
+      // ✅ IMPORTANT: Use createAgentContext() helper
+      // This sets up the internal event queue needed for widget streaming
+      const agentContext = agents.createAgentContext<{ userId: string }>(
         thread,
-        store: this.store,
-        requestContext: context,
-      };
+        this.store,
+        context
+      );
 
       // Convert ChatKit user message to Agent SDK input format
       const agentInput = await agents.simpleToAgentInput(input);

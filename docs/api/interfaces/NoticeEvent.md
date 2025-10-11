@@ -22,7 +22,7 @@ Defined in: src/types/events.ts:193
 
 ### level
 
-> **level**: `"info"` \| `"warning"` \| `"danger"`
+> **level**: `"info"` \| `"danger"` \| `"warning"`
 
 Defined in: src/types/events.ts:194
 
