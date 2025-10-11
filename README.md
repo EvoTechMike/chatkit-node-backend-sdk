@@ -2,7 +2,7 @@
 
 Node.js/TypeScript SDK for building ChatKit custom backend integrations with OpenAI Agents SDK.
 
-[![npm version](https://badge.fury.io/js/%40chatkit%2Fnode.svg)](https://www.npmjs.com/package/@chatkit/node)
+[![npm version](https://badge.fury.io/js/chatkit-node-backend-sdk.svg)](https://www.npmjs.com/package/chatkit-node-backend-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
@@ -17,7 +17,7 @@ Node.js/TypeScript SDK for building ChatKit custom backend integrations with Ope
 ## Installation
 
 ```bash
-npm install @chatkit/node @openai/agents zod
+npm install chatkit-node-backend-sdk @openai/agents zod
 ```
 
 ## Quick Start
@@ -27,7 +27,7 @@ npm install @chatkit/node @openai/agents zod
 Create a custom store implementation to persist threads and messages:
 
 ```typescript
-import { Store, ThreadMetadata, ThreadItem } from '@chatkit/node';
+import { Store, ThreadMetadata, ThreadItem } from 'chatkit-node-backend-sdk';
 
 class MyStore extends Store {
   async loadThread(threadId: string, context: any) {
@@ -61,7 +61,7 @@ class MyStore extends Store {
 Extend `ChatKitServer` and implement the `respond` method:
 
 ```typescript
-import { ChatKitServer, agents } from '@chatkit/node';
+import { ChatKitServer, agents } from 'chatkit-node-backend-sdk';
 import { Agent, run } from '@openai/agents';
 
 class MyChatKitServer extends ChatKitServer {

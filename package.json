@@ -1,5 +1,5 @@
 {
-  "name": "@chatkit/node",
+  "name": "chatkit-node-backend-sdk",
   "version": "0.1.0",
   "description": "Node.js/TypeScript SDK for ChatKit custom backend protocol",
   "type": "module",
