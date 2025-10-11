@@ -44,7 +44,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/EvoTechMike/chatkit-node-backend-sdk.git"
+    "url": "git+https://github.com/EvoTechMike/chatkit-node-backend-sdk.git"
   },
   "bugs": {
     "url": "https://github.com/EvoTechMike/chatkit-node-backend-sdk/issues"
