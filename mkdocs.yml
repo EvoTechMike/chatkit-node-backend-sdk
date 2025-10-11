@@ -13,8 +13,8 @@ theme:
   logo: docs/assets/logo.svg
   favicon: docs/images/favicon-platform.svg
 
-repo_name: chatkit-node
-repo_url: https://github.com/openai/chatkit-node
+repo_name: EvoTechMike/chatkit-node-backend-sdk
+repo_url: https://github.com/EvoTechMike/chatkit-node-backend-sdk
 
 plugins:
   - search

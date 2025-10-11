@@ -39,8 +39,16 @@
     "backend",
     "sdk"
   ],
-  "author": "",
+  "author": "EvoTechMike",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EvoTechMike/chatkit-node-backend-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EvoTechMike/chatkit-node-backend-sdk/issues"
+  },
+  "homepage": "https://github.com/EvoTechMike/chatkit-node-backend-sdk#readme",
   "engines": {
     "node": ">=18.0.0"
   },
