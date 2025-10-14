@@ -251,6 +251,12 @@ export async function* streamAgentResponse<TContext = unknown>(
             const startTime = toolCallTimestamps.get(callId);
             const duration = startTime ? Date.now() - startTime : null;
 
+            // Use startTime + duration for accurate completion timestamp
+            // (not current time, which would be after widget creation)
+            const completionTime = startTime && duration
+              ? new Date(startTime + duration).toISOString()
+              : new Date().toISOString();
+
             const toolResultItem = {
               id: `tool_${callId}_result`,
               type: 'server_tool_call',
@@ -259,7 +265,7 @@ export async function* streamAgentResponse<TContext = unknown>(
               status: rawItem.status === 'completed' ? 'completed' : 'failed',
               result: outputItem.output,
               duration_ms: duration,
-              created_at: new Date().toISOString()
+              created_at: completionTime
             };
 
             console.log(`[StreamConverter] ✅ Tool completed: ${rawItem.name} (${duration}ms)`);
