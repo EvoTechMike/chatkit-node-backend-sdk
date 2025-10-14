@@ -1,4 +1,9 @@
-import type { RunStreamEvent } from '@openai/agents';
+import type {
+  RunStreamEvent,
+  RunItemStreamEvent,
+  RunToolCallItem,
+  RunToolCallOutputItem
+} from '@openai/agents';
 import type { ThreadStreamEvent } from '../types/events.js';
 import type { AssistantMessageItem, Annotation, WorkflowItem, ClientToolCallItem } from '../types/items.js';
 import type { AgentContext } from './types.js';
@@ -93,12 +98,16 @@ export async function* streamAgentResponse<TContext = unknown>(
 
   // Workflow/reasoning tracking
   let currentWorkflowId: string | null = null;
+  let currentWorkflowCreatedAt: string | null = null;
   let currentWorkflowTasks: Array<{ type: 'thought'; content: string; title?: string | null }> = [];
   let streamingThoughtIndex: number | null = null;
 
   // Tool call tracking for client-side tool execution
   let currentToolCall: string | null = null;
   let currentToolCallItemId: string | null = null;
+
+  // Tool call tracking for database logging (maps callId -> start timestamp)
+  const toolCallTimestamps = new Map<string, number>();
 
   try {
     // Merge Agent SDK stream with custom event queue
@@ -138,7 +147,7 @@ export async function* streamAgentResponse<TContext = unknown>(
               type: 'workflow',
               id: currentWorkflowId,
               thread_id: context.thread.id,
-              created_at: new Date().toISOString(),
+              created_at: currentWorkflowCreatedAt || new Date().toISOString(),
               workflow: {
                 type: 'reasoning',
                 tasks: currentWorkflowTasks,
@@ -153,6 +162,7 @@ export async function* streamAgentResponse<TContext = unknown>(
             };
 
             currentWorkflowId = null;
+            currentWorkflowCreatedAt = null;
             currentWorkflowTasks = [];
             streamingThoughtIndex = null;
           }
@@ -181,6 +191,72 @@ export async function* streamAgentResponse<TContext = unknown>(
           currentToolCall = rawItem.call_id || null;
           currentToolCallItemId = rawItem.id || null;
         }
+
+        // Log tool calls from SDK stream to database
+        const itemEvent = agentEvent as RunItemStreamEvent;
+
+        // Tool call started
+        if (itemEvent.name === 'tool_called' && itemEvent.item.type === 'tool_call_item') {
+          const toolItem = itemEvent.item as RunToolCallItem;
+          const rawItem = toolItem.rawItem;
+
+          if (rawItem.type === 'function_call') {
+            const callId = rawItem.callId;
+            toolCallTimestamps.set(callId, Date.now());
+
+            const toolCallItem = {
+              id: `tool_${callId}`,
+              type: 'server_tool_call',
+              thread_id: context.thread.id,
+              name: rawItem.name,
+              status: 'running',
+              arguments: JSON.parse(rawItem.arguments || '{}'),
+              created_at: new Date().toISOString()
+            };
+
+            console.log(`[StreamConverter] 🔧 Tool called: ${rawItem.name} (${callId})`);
+
+            await context.store.addThreadItem(
+              context.thread.id,
+              toolCallItem as any,
+              context.requestContext
+            );
+          }
+        }
+
+        // Tool call finished
+        else if (itemEvent.name === 'tool_output' && itemEvent.item.type === 'tool_call_output_item') {
+          const outputItem = itemEvent.item as RunToolCallOutputItem;
+          const rawItem = outputItem.rawItem;
+
+          if (rawItem.type === 'function_call_result') {
+            const callId = rawItem.callId;
+            const startTime = toolCallTimestamps.get(callId);
+            const duration = startTime ? Date.now() - startTime : null;
+
+            const toolResultItem = {
+              id: `tool_${callId}`,
+              type: 'server_tool_call',
+              thread_id: context.thread.id,
+              name: rawItem.name,
+              status: rawItem.status === 'completed' ? 'completed' : 'failed',
+              arguments: {},  // Arguments were stored in the initial call
+              result: outputItem.output,
+              duration_ms: duration,
+              created_at: new Date().toISOString()
+            };
+
+            console.log(`[StreamConverter] ✅ Tool completed: ${rawItem.name} (${duration}ms)`);
+
+            await context.store.saveItem(
+              context.thread.id,
+              toolResultItem as any,
+              context.requestContext
+            );
+
+            toolCallTimestamps.delete(callId);
+          }
+        }
       }
 
       // Handle Agent SDK raw model stream events
@@ -191,12 +267,12 @@ export async function* streamAgentResponse<TContext = unknown>(
         if (data.type === 'model' && data.event?.type === 'response.output_item.added') {
           const item = data.event.item;
 
-          // Handle reasoning workflow creation
+          // Handle reasoning item added - create workflow now so delta handlers can populate it
           if (item && item.type === 'reasoning') {
-            // 🐛 DEBUG: Log the reasoning item to see what data it contains
-            console.log('[StreamConverter] Reasoning item:', JSON.stringify(item, null, 2));
+            console.log('[StreamConverter] Reasoning item ADDED - creating workflow for thinking');
 
-            // Only emit workflow events if showThinking is true
+            // Create workflow immediately if showThinking is true
+            // Summary will be populated by response.reasoning_summary_text.delta/done events
             if (showThinking) {
               // Close any existing workflow before starting new one
               if (currentWorkflowId) {
@@ -204,7 +280,7 @@ export async function* streamAgentResponse<TContext = unknown>(
                   type: 'workflow',
                   id: currentWorkflowId,
                   thread_id: context.thread.id,
-                  created_at: new Date().toISOString(),
+                  created_at: currentWorkflowCreatedAt || new Date().toISOString(),
                   workflow: {
                     type: 'reasoning',
                     tasks: currentWorkflowTasks,
@@ -221,6 +297,7 @@ export async function* streamAgentResponse<TContext = unknown>(
 
               // Create new reasoning workflow
               currentWorkflowId = defaultGenerateItemId('workflow');
+              currentWorkflowCreatedAt = new Date().toISOString();
               currentWorkflowTasks = [];
               streamingThoughtIndex = null;
 
@@ -228,7 +305,7 @@ export async function* streamAgentResponse<TContext = unknown>(
                 type: 'workflow',
                 id: currentWorkflowId,
                 thread_id: context.thread.id,
-                created_at: new Date().toISOString(),
+                created_at: currentWorkflowCreatedAt,
                 workflow: {
                   type: 'reasoning',
                   tasks: [],
@@ -236,6 +313,8 @@ export async function* streamAgentResponse<TContext = unknown>(
                   summary: null,
                 },
               };
+
+              console.log('[StreamConverter] ✅ Creating workflow item with ID:', currentWorkflowId);
 
               yield {
                 type: 'thread.item.added',
@@ -247,12 +326,12 @@ export async function* streamAgentResponse<TContext = unknown>(
           // Handle message creation
           else if (item && item.type === 'message' && item.role === 'assistant') {
             // Close workflow if one is active (message comes after reasoning)
-            if (currentWorkflowId && showThinking) {
+            if (currentWorkflowId) {
               const workflowItem: WorkflowItem = {
                 type: 'workflow',
                 id: currentWorkflowId,
                 thread_id: context.thread.id,
-                created_at: new Date().toISOString(),
+                created_at: currentWorkflowCreatedAt || new Date().toISOString(),
                 workflow: {
                   type: 'reasoning',
                   tasks: currentWorkflowTasks,
@@ -267,6 +346,7 @@ export async function* streamAgentResponse<TContext = unknown>(
               };
 
               currentWorkflowId = null;
+              currentWorkflowCreatedAt = null;
               currentWorkflowTasks = [];
               streamingThoughtIndex = null;
             }
@@ -462,9 +542,12 @@ export async function* streamAgentResponse<TContext = unknown>(
         else if (data.type === 'model' && data.event?.type === 'response.output_item.done') {
           const item = data.event.item;
 
-          // 🐛 DEBUG: Check if this is a reasoning item being completed
+          // Handle reasoning item completion - workflow already created at 'added' time
           if (item && item.type === 'reasoning') {
-            console.log('[StreamConverter] Reasoning item DONE:', JSON.stringify(item, null, 2));
+            console.log('[StreamConverter] Reasoning item DONE - workflow already populated by delta/done handlers');
+            // Workflow was created at response.output_item.added time
+            // Tasks were populated by response.reasoning_summary_text.delta/done events
+            // No action needed here
           }
 
           if (item && item.type === 'message' && item.role === 'assistant' && currentMessageId) {
