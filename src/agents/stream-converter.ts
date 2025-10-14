@@ -2,7 +2,9 @@ import type {
   RunStreamEvent,
   RunItemStreamEvent,
   RunToolCallItem,
-  RunToolCallOutputItem
+  RunToolCallOutputItem,
+  RunHandoffCallItem,
+  RunHandoffOutputItem
 } from '@openai/agents';
 import type { ThreadStreamEvent } from '../types/events.js';
 import type { AssistantMessageItem, Annotation, WorkflowItem, ClientToolCallItem } from '../types/items.js';
@@ -89,8 +91,23 @@ export async function* streamAgentResponse<TContext = unknown>(
   agentRunner: AsyncIterable<RunStreamEvent>,
   options: { showThinking?: boolean } = {}
 ): AsyncGenerator<ThreadStreamEvent> {
-  const showThinking = options.showThinking ?? true;
+  const fallbackShowThinking = options.showThinking ?? true;
   let currentMessageId: string | null = null;
+
+  // Track current agent for dynamic showThinking lookup
+  let currentAgentName: string = (context as any).currentAgent || 'unknown';
+
+  // Helper to get showThinking for current agent
+  const getShowThinking = (): boolean => {
+    const agentConfigs = (context as any).agentConfigs;
+    if (agentConfigs && Array.isArray(agentConfigs)) {
+      const agentConfig = agentConfigs.find((a: any) => a.name === currentAgentName);
+      if (agentConfig) {
+        return agentConfig.showThinking || false;
+      }
+    }
+    return fallbackShowThinking;
+  };
 
   // Track text accumulation for each content part separately
   // Map of content_index -> accumulated text
@@ -140,9 +157,9 @@ export async function* streamAgentResponse<TContext = unknown>(
             currentWorkflowId &&
             item.type !== 'client_tool_call' &&
             item.type !== 'hidden_context_item' &&
-            showThinking
+            getShowThinking()
           ) {
-            // End workflow before emitting custom item
+            // End workflow before emitting custom item (always emit if showThinking is true)
             const workflowItem: WorkflowItem = {
               type: 'workflow',
               id: currentWorkflowId,
@@ -257,6 +274,73 @@ export async function* streamAgentResponse<TContext = unknown>(
             toolCallTimestamps.delete(callId);
           }
         }
+
+        // Handoff requested
+        else if (itemEvent.name === 'handoff_requested' && itemEvent.item.type === 'handoff_call_item') {
+          const handoffItem = itemEvent.item as RunHandoffCallItem;
+          const rawItem = handoffItem.rawItem;
+
+          if (rawItem.type === 'function_call') {
+            const callId = rawItem.callId;
+            const targetAgent = rawItem.name; // Handoff function name is the target agent
+
+            // Parse arguments to get reason
+            const args = JSON.parse(rawItem.arguments || '{}');
+            const reason = args.reason || `Handoff to ${targetAgent}`;
+
+            const handoffRequestItem = {
+              id: `handoff_${callId}`,
+              type: 'handoff',
+              thread_id: context.thread.id,
+              from: handoffItem.agent.name,
+              to: targetAgent,
+              reason,
+              status: 'requested',
+              created_at: new Date().toISOString()
+            };
+
+            console.log(`[StreamConverter] 🔄 Handoff requested: ${handoffItem.agent.name} → ${targetAgent}`);
+
+            await context.store.addThreadItem(
+              context.thread.id,
+              handoffRequestItem as any,
+              context.requestContext
+            );
+          }
+        }
+
+        // Handoff occurred (completed)
+        else if (itemEvent.name === 'handoff_occurred' && itemEvent.item.type === 'handoff_output_item') {
+          const handoffOutputItem = itemEvent.item as RunHandoffOutputItem;
+          const rawItem = handoffOutputItem.rawItem;
+
+          if (rawItem.type === 'function_call_result') {
+            const callId = rawItem.callId;
+
+            // Update current agent tracking
+            currentAgentName = handoffOutputItem.targetAgent.name;
+            console.log(`[StreamConverter] 🔄 Agent switched to: ${currentAgentName} (showThinking: ${getShowThinking()})`);
+
+            const handoffCompleteItem = {
+              id: `handoff_${callId}`,
+              type: 'handoff',
+              thread_id: context.thread.id,
+              from: handoffOutputItem.sourceAgent.name,
+              to: handoffOutputItem.targetAgent.name,
+              reason: '', // Reason was already in the request
+              status: rawItem.status === 'completed' ? 'completed' : 'failed',
+              created_at: new Date().toISOString()
+            };
+
+            console.log(`[StreamConverter] ✅ Handoff completed: ${handoffOutputItem.sourceAgent.name} → ${handoffOutputItem.targetAgent.name}`);
+
+            await context.store.saveItem(
+              context.thread.id,
+              handoffCompleteItem as any,
+              context.requestContext
+            );
+          }
+        }
       }
 
       // Handle Agent SDK raw model stream events
@@ -273,8 +357,8 @@ export async function* streamAgentResponse<TContext = unknown>(
 
             // Create workflow immediately if showThinking is true
             // Summary will be populated by response.reasoning_summary_text.delta/done events
-            if (showThinking) {
-              // Close any existing workflow before starting new one
+            if (getShowThinking()) {
+              // Close any existing workflow before starting new one (always emit if showThinking is true)
               if (currentWorkflowId) {
                 const workflowItem: WorkflowItem = {
                   type: 'workflow',
@@ -326,6 +410,7 @@ export async function* streamAgentResponse<TContext = unknown>(
           // Handle message creation
           else if (item && item.type === 'message' && item.role === 'assistant') {
             // Close workflow if one is active (message comes after reasoning)
+            // Note: currentWorkflowId only exists if showThinking was true, so always emit it
             if (currentWorkflowId) {
               const workflowItem: WorkflowItem = {
                 type: 'workflow',
@@ -452,7 +537,7 @@ export async function* streamAgentResponse<TContext = unknown>(
 
         // Handle reasoning summary delta (streaming thoughts)
         else if (data.type === 'model' && data.event?.type === 'response.reasoning_summary_text.delta') {
-          if (currentWorkflowId && showThinking) {
+          if (currentWorkflowId && getShowThinking()) {
             const delta = data.event.delta || '';
             const summaryIndex = data.event.summary_index ?? 0;
 
@@ -495,7 +580,7 @@ export async function* streamAgentResponse<TContext = unknown>(
 
         // Handle reasoning summary done (finalize thought)
         else if (data.type === 'model' && data.event?.type === 'response.reasoning_summary_text.done') {
-          if (currentWorkflowId && showThinking) {
+          if (currentWorkflowId && getShowThinking()) {
             const text = data.event.text || '';
             const summaryIndex = data.event.summary_index ?? 0;
 
