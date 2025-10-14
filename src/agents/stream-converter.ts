@@ -252,12 +252,11 @@ export async function* streamAgentResponse<TContext = unknown>(
             const duration = startTime ? Date.now() - startTime : null;
 
             const toolResultItem = {
-              id: `tool_${callId}`,
+              id: `tool_${callId}_result`,
               type: 'server_tool_call',
               thread_id: context.thread.id,
               name: rawItem.name,
               status: rawItem.status === 'completed' ? 'completed' : 'failed',
-              arguments: {},  // Arguments were stored in the initial call
               result: outputItem.output,
               duration_ms: duration,
               created_at: new Date().toISOString()
@@ -265,7 +264,7 @@ export async function* streamAgentResponse<TContext = unknown>(
 
             console.log(`[StreamConverter] ✅ Tool completed: ${rawItem.name} (${duration}ms)`);
 
-            await context.store.saveItem(
+            await context.store.addThreadItem(
               context.thread.id,
               toolResultItem as any,
               context.requestContext
