@@ -41,10 +41,7 @@
     "sdk"
   ],
   "author": "EvoTechMike",
-  "license": "UNLICENSED",
-  "publishConfig": {
-    "access": "restricted"
-  },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/EvoTechMike/chatkit-node-backend-sdk.git"
