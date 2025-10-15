@@ -327,7 +327,7 @@ export async function* streamAgentResponse<TContext = unknown>(
             console.log(`[StreamConverter] 🔄 Agent switched to: ${currentAgentName} (showThinking: ${getShowThinking()})`);
 
             const handoffCompleteItem = {
-              id: `handoff_${callId}`,
+              id: `handoff_${callId}_completed`,
               type: 'handoff',
               thread_id: context.thread.id,
               from: handoffOutputItem.sourceAgent.name,
@@ -339,7 +339,7 @@ export async function* streamAgentResponse<TContext = unknown>(
 
             console.log(`[StreamConverter] ✅ Handoff completed: ${handoffOutputItem.sourceAgent.name} → ${handoffOutputItem.targetAgent.name}`);
 
-            await context.store.saveItem(
+            await context.store.addThreadItem(
               context.thread.id,
               handoffCompleteItem as any,
               context.requestContext
