@@ -1,7 +1,10 @@
 import type { ThreadMetadata } from '../types/thread.js';
 import type { Store } from '../store/Store.js';
+import type { StoreItemType } from '../types/store.js';
 import type { ThreadStreamEvent } from '../types/events.js';
 import type { WidgetRoot } from '../widgets/index.js';
+import type { WorkflowItem } from '../types/items.js';
+import type { Workflow, Task, WorkflowSummary } from '../types/workflow.js';
 
 /**
  * Client tool call configuration.
@@ -135,6 +138,35 @@ export interface AgentContext<TContext = unknown> {
   _events: AsyncEventQueue<ThreadStreamEvent>;
 
   /**
+   * Previous response ID for conversation chaining.
+   * Used with OpenAI's Responses API to maintain server-side conversation state.
+   *
+   * NEW: Python SDK parity feature!
+   *
+   * @example
+   * ```typescript
+   * // Track response ID for next request
+   * context.previousResponseId = result.response_id;
+   * ```
+   */
+  previousResponseId?: string | null;
+
+  /**
+   * Current active workflow item.
+   * Tracks custom workflows created by tools during execution.
+   *
+   * NEW: Python SDK parity feature!
+   *
+   * @example
+   * ```typescript
+   * // Start a workflow
+   * await context.startWorkflow({ type: 'custom', tasks: [] });
+   * console.log(context.workflowItem?.id); // "wf_abc123"
+   * ```
+   */
+  workflowItem?: WorkflowItem | null;
+
+  /**
    * Client tool call to be executed on the client-side.
    * When set by a tool, this will be emitted as a ClientToolCallItem at the end of the stream.
    *
@@ -148,6 +180,129 @@ export interface AgentContext<TContext = unknown> {
    * ```
    */
   clientToolCall?: ClientToolCall;
+
+  /**
+   * Generate a unique ID for a thread item.
+   *
+   * Convenience method for generating IDs without calling store methods directly.
+   *
+   * NEW: Python SDK parity feature!
+   *
+   * @param type - The type of item to generate an ID for
+   * @param thread - Optional thread metadata (defaults to context.thread)
+   * @returns A unique ID string
+   *
+   * @example
+   * ```typescript
+   * const itemId = context.generateId('message');
+   * const workflowId = context.generateId('workflow');
+   * ```
+   */
+  generateId(type: StoreItemType, thread?: ThreadMetadata): string;
+
+  /**
+   * Start a new workflow.
+   *
+   * Workflows are multi-step progress indicators shown to users.
+   * Use this to create custom workflows that display task progress.
+   *
+   * NEW: Python SDK parity feature!
+   *
+   * @param workflow - The workflow configuration
+   *
+   * @example
+   * ```typescript
+   * // In a tool that processes data
+   * async execute(params, { context }) {
+   *   await context.startWorkflow({
+   *     type: 'custom',
+   *     tasks: [],
+   *     expanded: true,
+   *     summary: null
+   *   });
+   *
+   *   // Add tasks as work progresses...
+   * }
+   * ```
+   */
+  startWorkflow(workflow: Workflow): Promise<void>;
+
+  /**
+   * End the current workflow.
+   *
+   * Completes the active workflow with an optional summary.
+   * The workflow will be saved to the database and marked as complete.
+   *
+   * NEW: Python SDK parity feature!
+   *
+   * @param summary - Optional summary to display when collapsed
+   * @param expanded - Whether to keep the workflow expanded (default: false)
+   *
+   * @example
+   * ```typescript
+   * // End workflow with duration summary
+   * await context.endWorkflow(
+   *   { type: 'duration', duration: 30 },
+   *   false  // collapsed
+   * );
+   * ```
+   */
+  endWorkflow(
+    summary?: WorkflowSummary | null,
+    expanded?: boolean
+  ): Promise<void>;
+
+  /**
+   * Add a task to the current workflow.
+   *
+   * Creates or updates the active workflow with a new task.
+   * If no workflow is active, creates one automatically.
+   *
+   * NEW: Python SDK parity feature!
+   *
+   * @param task - The task to add to the workflow
+   *
+   * @example
+   * ```typescript
+   * await context.addWorkflowTask({
+   *   type: 'custom',
+   *   title: 'Loading data',
+   *   content: 'Reading 1000 rows from database...'
+   * });
+   *
+   * // Later, update it
+   * await context.updateWorkflowTask(
+   *   { type: 'custom', title: 'Loading data', content: '✓ Loaded 1000 rows' },
+   *   0  // task index
+   * );
+   * ```
+   */
+  addWorkflowTask(task: Task): Promise<void>;
+
+  /**
+   * Update an existing task in the current workflow.
+   *
+   * Modifies a task at the specified index, useful for showing progress updates.
+   *
+   * NEW: Python SDK parity feature!
+   *
+   * @param task - The updated task
+   * @param taskIndex - The index of the task to update
+   *
+   * @example
+   * ```typescript
+   * // Update task status from "in progress" to "complete"
+   * await context.updateWorkflowTask(
+   *   {
+   *     type: 'custom',
+   *     title: 'Processing',
+   *     content: '✓ Completed 100/100 items'
+   *   },
+   *   1  // second task
+   * );
+   * ```
+   */
+  updateWorkflowTask(task: Task, taskIndex: number): Promise<void>;
 
   /**
    * Emit a custom ThreadStreamEvent.

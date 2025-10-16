@@ -22,10 +22,25 @@ export { createAgentContext } from './context-helpers.js';
 // Input/output conversion
 export { simpleToAgentInput } from './input-converter.js';
 export { streamAgentResponse } from './stream-converter.js';
+
+// Output conversion (Agent → ChatKit ThreadItems)
 export {
   ThreadItemConverter,
   DefaultThreadItemConverter,
 } from './item-converter.js';
+
+// Input conversion (ChatKit ThreadItems → Agent input) - NEW!
+export {
+  InputThreadItemConverter,
+  defaultInputConverter,
+  type ResponseInputItem,
+  type ResponseInputMessage,
+  type ResponseInputContentParam,
+  type ResponseInputTextParam,
+  type ResponseInputImageParam,
+  type ResponseFunctionToolCall,
+  type ResponseFunctionCallOutput,
+} from './input-item-converter.js';
 
 // Widget helpers
 export { diffWidget, accumulateText } from './widget-helpers.js';
