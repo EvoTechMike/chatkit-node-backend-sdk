@@ -310,6 +310,7 @@ export abstract class ChatKitServer<TContext = unknown> {
     switch (request.type) {
       case 'threads.create': {
         const req = request as ThreadsCreateReq;
+        console.log('DEBUG threads.create params:', JSON.stringify(req.params, null, 2));
         // Create thread
         const thread: ThreadMetadata = {
           id: this.store.generateThreadId(context),

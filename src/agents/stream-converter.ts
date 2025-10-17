@@ -159,25 +159,28 @@ export async function* streamAgentResponse<TContext = unknown>(
             item.type !== 'hidden_context_item' &&
             getShowThinking()
           ) {
-            // End workflow before emitting custom item (always emit if showThinking is true)
-            const workflowItem: WorkflowItem = {
-              type: 'workflow',
-              id: currentWorkflowId,
-              thread_id: context.thread.id,
-              created_at: currentWorkflowCreatedAt || new Date().toISOString(),
-              workflow: {
-                type: 'reasoning',
-                tasks: currentWorkflowTasks,
-                expanded: false,
-                summary: null,
-              },
-            };
+            // End workflow before emitting custom item (only if it has tasks)
+            if (currentWorkflowTasks.length > 0) {
+              const workflowItem: WorkflowItem = {
+                type: 'workflow',
+                id: currentWorkflowId,
+                thread_id: context.thread.id,
+                created_at: currentWorkflowCreatedAt || new Date().toISOString(),
+                workflow: {
+                  type: 'reasoning',
+                  tasks: currentWorkflowTasks,
+                  expanded: false,
+                  summary: null,
+                },
+              };
 
-            yield {
-              type: 'thread.item.done',
-              item: workflowItem,
-            };
+              yield {
+                type: 'thread.item.done',
+                item: workflowItem,
+              };
+            }
 
+            // Reset workflow state
             currentWorkflowId = null;
             currentWorkflowCreatedAt = null;
             currentWorkflowTasks = [];
@@ -363,8 +366,8 @@ export async function* streamAgentResponse<TContext = unknown>(
             // Create workflow immediately if showThinking is true
             // Summary will be populated by response.reasoning_summary_text.delta/done events
             if (getShowThinking()) {
-              // Close any existing workflow before starting new one (always emit if showThinking is true)
-              if (currentWorkflowId) {
+              // Close any existing workflow before starting new one (only if it has tasks)
+              if (currentWorkflowId && currentWorkflowTasks.length > 0) {
                 const workflowItem: WorkflowItem = {
                   type: 'workflow',
                   id: currentWorkflowId,
@@ -382,6 +385,9 @@ export async function* streamAgentResponse<TContext = unknown>(
                   type: 'thread.item.done',
                   item: workflowItem,
                 };
+              } else if (currentWorkflowId) {
+                // Discard empty workflow silently
+                console.log('[StreamConverter] ⚠️ Discarding empty workflow before creating new one');
               }
 
               // Create new reasoning workflow
@@ -415,8 +421,8 @@ export async function* streamAgentResponse<TContext = unknown>(
           // Handle message creation
           else if (item && item.type === 'message' && item.role === 'assistant') {
             // Close workflow if one is active (message comes after reasoning)
-            // Note: currentWorkflowId only exists if showThinking was true, so always emit it
-            if (currentWorkflowId) {
+            // Only emit if workflow has tasks (filter out empty ones)
+            if (currentWorkflowId && currentWorkflowTasks.length > 0) {
               const workflowItem: WorkflowItem = {
                 type: 'workflow',
                 id: currentWorkflowId,
@@ -434,7 +440,10 @@ export async function* streamAgentResponse<TContext = unknown>(
                 type: 'thread.item.done',
                 item: workflowItem,
               };
+            }
 
+            // Reset workflow state
+            if (currentWorkflowId) {
               currentWorkflowId = null;
               currentWorkflowCreatedAt = null;
               currentWorkflowTasks = [];
@@ -632,12 +641,42 @@ export async function* streamAgentResponse<TContext = unknown>(
         else if (data.type === 'model' && data.event?.type === 'response.output_item.done') {
           const item = data.event.item;
 
-          // Handle reasoning item completion - workflow already created at 'added' time
+          // Handle reasoning item completion - close workflow if it has content
           if (item && item.type === 'reasoning') {
-            console.log('[StreamConverter] Reasoning item DONE - workflow already populated by delta/done handlers');
-            // Workflow was created at response.output_item.added time
-            // Tasks were populated by response.reasoning_summary_text.delta/done events
-            // No action needed here
+            console.log('[StreamConverter] Reasoning item DONE - closing workflow if it has content');
+
+            // Close workflow only if it has tasks (filter out empty "thought for a while")
+            if (currentWorkflowId && currentWorkflowTasks.length > 0) {
+              const workflowItem: WorkflowItem = {
+                type: 'workflow',
+                id: currentWorkflowId,
+                thread_id: context.thread.id,
+                created_at: currentWorkflowCreatedAt || new Date().toISOString(),
+                workflow: {
+                  type: 'reasoning',
+                  tasks: currentWorkflowTasks,
+                  expanded: false,
+                  summary: null,
+                },
+              };
+
+              yield {
+                type: 'thread.item.done',
+                item: workflowItem,
+              };
+
+              currentWorkflowId = null;
+              currentWorkflowCreatedAt = null;
+              currentWorkflowTasks = [];
+              streamingThoughtIndex = null;
+            } else if (currentWorkflowId) {
+              // Workflow exists but has no tasks - discard it silently
+              console.log('[StreamConverter] ⚠️ Discarding empty reasoning workflow');
+              currentWorkflowId = null;
+              currentWorkflowCreatedAt = null;
+              currentWorkflowTasks = [];
+              streamingThoughtIndex = null;
+            }
           }
 
           if (item && item.type === 'message' && item.role === 'assistant' && currentMessageId) {

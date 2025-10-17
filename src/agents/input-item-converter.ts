@@ -224,61 +224,47 @@ export class InputThreadItemConverter {
   /**
    * Convert a WorkflowItem to agent input messages.
    *
-   * By default, converts each custom task to a message describing the work performed.
-   * Reasoning tasks are skipped (they're AI's own thoughts).
+   * By default, workflows are SKIPPED from AI context (returns empty array).
+   * Workflows are visual progress indicators - the AI doesn't need to see them in history.
+   * The actual tool result contains the important information.
+   *
+   * Note: Workflows remain visible in the UI when loading thread history.
+   * They're only skipped from the AI's conversation context.
    *
    * @param item - The workflow item from thread history
-   * @returns Array of input messages, one per task (or empty array)
+   * @returns Empty array (workflows skipped by default)
    *
-   * @example Default behavior
+   * @example To include workflows in AI context, override this method:
    * ```typescript
-   * // Workflow with 2 custom tasks becomes:
-   * [
-   *   {
-   *     type: 'message',
-   *     role: 'user',
-   *     content: [{
-   *       type: 'input_text',
-   *       text: 'A message was displayed to the user that the following task was performed:\n<Task>Loading data: Read 1000 rows from database</Task>'
-   *     }]
-   *   },
-   *   {
-   *     type: 'message',
-   *     role: 'user',
-   *     content: [{
-   *       type: 'input_text',
-   *       text: 'A message was displayed to the user that the following task was performed:\n<Task>Processing: Analyzed customer patterns</Task>'
-   *     }]
+   * workflowToInput(item: WorkflowItem): ResponseInputItem[] {
+   *   if (item.workflow.type === 'reasoning') {
+   *     return []; // Skip AI's own thinking
    *   }
-   * ]
+   *
+   *   const messages: ResponseInputItem[] = [];
+   *   for (const task of item.workflow.tasks) {
+   *     if (task.type === 'custom' && (task.title || task.content)) {
+   *       const taskText = task.title && task.content
+   *         ? `${task.title}: ${task.content}`
+   *         : task.title || task.content;
+   *       messages.push({
+   *         type: 'message',
+   *         role: 'user',
+   *         content: [{
+   *           type: 'input_text',
+   *           text: `Task performed: ${taskText}`
+   *         }]
+   *       });
+   *     }
+   *   }
+   *   return messages;
+   * }
    * ```
    */
-  workflowToInput(item: WorkflowItem): ResponseInputItem[] {
-    const messages: ResponseInputItem[] = [];
-
-    for (const task of item.workflow.tasks) {
-      // Skip non-custom tasks (like reasoning thoughts - those are AI's internal process)
-      if (task.type !== 'custom' || (!task.title && !task.content)) {
-        continue;
-      }
-
-      const title = task.title || '';
-      const content = task.content || '';
-      const taskText = title && content ? `${title}: ${content}` : title || content;
-
-      messages.push({
-        type: 'message',
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text: `A message was displayed to the user that the following task was performed:\n<Task>${taskText}</Task>`,
-          },
-        ],
-      });
-    }
-
-    return messages;
+  workflowToInput(_item: WorkflowItem): ResponseInputItem[] {
+    // Skip all workflows by default - they're UI progress indicators
+    // The actual tool result contains the important information
+    return [];
   }
 
   /**
@@ -439,22 +425,20 @@ export class InputThreadItemConverter {
   /**
    * Convert an AssistantMessageItem to agent input.
    *
-   * Used when loading conversation history that includes AI responses.
+   * By default, SKIPS assistant messages (returns null) to avoid conflicts with previousResponseId.
+   * The Agents SDK doesn't handle explicit assistant messages well in conversation history.
+   *
+   * Override this method if you need assistant messages in history (not recommended).
    *
    * @param item - The assistant message item
-   * @returns Input message with assistant role
+   * @returns null (assistant messages skipped by default)
    */
   async assistantMessageToInput(
-    item: AssistantMessageItem
-  ): Promise<ResponseInputItem> {
-    return {
-      type: 'message',
-      role: 'assistant',
-      content: item.content.map((c) => ({
-        type: 'input_text' as const,
-        text: c.text,
-      })),
-    };
+    _item: AssistantMessageItem
+  ): Promise<ResponseInputItem | null> {
+    // Skip assistant messages - they conflict with previousResponseId
+    // and the Agents SDK doesn't handle them well anyway
+    return null;
   }
 
   /**
