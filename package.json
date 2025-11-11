@@ -67,7 +67,7 @@
     "vitest": "^1.0.4"
   },
   "dependencies": {
-    "@openai/agents": "^0.1.9",
+    "@openai/agents": "^0.3.0",
     "zod": "^3.25.76"
   }
 }
