@@ -727,22 +727,70 @@ export async function* streamAgentResponse<TContext = unknown>(
         }
       }
     }
+
+    // Drain any remaining events from the queue
+    // This handles events that were queued but not yet consumed by the merge
+    // (e.g., from lifecycle hooks firing after agent stream completes)
+    const remainingEvents = context._events.drain();
+
+    for (const event of remainingEvents) {
+      // Events in the queue are already ThreadStreamEvents (not wrapped)
+      yield event as ThreadStreamEvent;
+    }
+
   } catch (error) {
     // Complete the queue to stop waiting for events
     context._events.complete();
 
+    // Log full error server-side for debugging
+    console.error('❌ [StreamConverter] Agent error occurred:');
+    console.error('   Error:', error);
+    if (error instanceof Error) {
+      console.error('   Stack:', error.stack);
+    }
+
+    // Sanitize error message for end user
+    let userMessage = 'An error occurred while processing your request. Please try again.';
+    let errorCode = 'agent_error';
+
+    if (error instanceof Error) {
+      const fullMessage = error.message;
+
+      // Detect MCP/HTTP connection errors
+      if (fullMessage.includes('Error POSTing to endpoint') ||
+          fullMessage.includes('HTTP 503') ||
+          fullMessage.includes('HTTP 404') ||
+          fullMessage.includes('Session not found')) {
+        userMessage = 'Unable to connect to required service. Please try again in a moment.';
+        errorCode = 'service_unavailable';
+
+        // Extract error code for support debugging
+        const httpMatch = fullMessage.match(/HTTP (\d+)/);
+        if (httpMatch) {
+          userMessage += ` (Error: ${httpMatch[1]})`;
+        }
+      } else if (fullMessage.includes('<!DOCTYPE') || fullMessage.includes('<html')) {
+        // HTML error page - show generic message
+        userMessage = 'Service temporarily unavailable. Please try again.';
+        errorCode = 'service_error';
+      } else if (fullMessage.length < 200 && !fullMessage.includes('<')) {
+        // Short, non-HTML error - safe to show (truncated)
+        userMessage = fullMessage.substring(0, 150);
+        if (fullMessage.length > 150) {
+          userMessage += '...';
+        }
+      }
+    }
+
     // Emit error event
     yield {
       type: 'error',
-      code: 'agent_error',
-      message:
-        error instanceof Error
-          ? error.message
-          : 'An error occurred while processing agent response',
+      code: errorCode,
+      message: userMessage,
       allow_retry: true,
     };
 
-    // Re-throw to exit
+    // Return to exit normally (matches Python pattern - no re-throw)
     return;
   }
 

@@ -59,6 +59,16 @@ export class AsyncEventQueue<T> implements AsyncIterable<T> {
   }
 
   /**
+   * Drain all remaining items from the queue (synchronously)
+   * Returns any items that were queued but not yet consumed
+   */
+  drain(): T[] {
+    const items = [...this.queue];
+    this.queue = [];
+    return items;
+  }
+
+  /**
    * Get next event from queue (async)
    */
   private next(): Promise<T | typeof AsyncEventQueue.COMPLETE> {

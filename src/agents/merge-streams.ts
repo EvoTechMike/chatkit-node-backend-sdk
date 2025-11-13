@@ -58,7 +58,7 @@ export async function* mergeAsyncGenerators<T1, T2>(
   const pending = new Map<string, Promise<IteratorResult<T1 | T2>>>();
 
   const createPromise = (_iteratorKey: string, iterator: AsyncIterator<T1 | T2>) => {
-    return iterator.next().catch(() => ({ done: true, value: undefined } as IteratorResult<T1 | T2>));
+    return iterator.next(); // Let errors propagate instead of swallowing them
   };
 
   // Initialize pending promises for both iterators
